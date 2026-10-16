@@ -126,7 +126,8 @@ export default function Home() {
 
       <div
         className="relative grid items-end justify-items-center"
-        style={{ gridTemplateColumns: `repeat(${cols}, ${width}px)`, gap: GAP }}
+        // rows need the same clearance as the genre picker, or an open folder's files cover the one above
+        style={{ gridTemplateColumns: `repeat(${cols}, ${width}px)`, columnGap: GAP, rowGap: Math.round(width * 0.25) }}
       >
         <RankFolder label="오늘의 트렌딩" url="/api/movies/trending?period=day" art="aurora" tone="light" delay={0} width={width} />
         <RankFolder label="이번 주 트렌딩" url="/api/movies/trending?period=week" art="dusk" tone="dark" delay={140} width={width} />

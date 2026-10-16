@@ -215,15 +215,16 @@ export default function KineticGrid({
       ctx.fillStyle = theme.bg;
       ctx.fillRect(0, 0, W, H);
 
-      // Static background dot texture
+      // Static background dot texture, as one path: one fill instead of thousands
       ctx.fillStyle = "rgba(255,255,255,0.05)";
+      ctx.beginPath();
       for (let x = DOT_SPACING / 2; x < W; x += DOT_SPACING) {
         for (let y = DOT_SPACING / 2; y < H; y += DOT_SPACING) {
-          ctx.beginPath();
+          ctx.moveTo(x + 0.7, y);
           ctx.arc(x, y, 0.7, 0, Math.PI * 2);
-          ctx.fill();
         }
       }
+      ctx.fill();
 
       // Update ripples
       for (let i = ripples.length - 1; i >= 0; i--) {
@@ -387,9 +388,18 @@ export default function KineticGrid({
 
       m.x = lerpN(m.x, t.x, LERP_SPEED);
       m.y = lerpN(m.y, t.y, LERP_SPEED);
+      // snap once close so the loop can settle
+      if (Math.abs(m.x - t.x) < 0.5 && Math.abs(m.y - t.y) < 0.5) {
+        m.x = t.x;
+        m.y = t.y;
+      }
 
       draw(now);
-      rafRef.current = requestAnimationFrame(animate);
+      // only keep animating while something moves: an idle canvas costs nothing,
+      // and the glass folders above it don't have to re-blur every frame
+      const busy =
+        m.x !== t.x || m.y !== t.y || ripplesRef.current.length > 0;
+      rafRef.current = busy ? requestAnimationFrame(animate) : 0;
     },
     [draw],
   );
@@ -400,23 +410,36 @@ export default function KineticGrid({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    const kick = () => {
+      if (!rafRef.current) rafRef.current = requestAnimationFrame(animate);
+    };
+
     const setSize = () => {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      canvas.width = w;
-      canvas.height = h;
+      // mobile URL bars resize the viewport while scrolling: keep the tallest
+      // height at this width so the floor doesn't re-project and jump
+      if (w === sizeRef.current.w && h <= sizeRef.current.h) return;
+      // sharp on high-DPI screens; capped at 2x to bound the pixel cost
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      canvas.style.height = h + "px";
+      canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
       sizeRef.current = { w, h };
-      if (mouseRef.current.x === -9999) {
-        mouseRef.current = { x: -9999, y: -9999 };
-        targetMouseRef.current = { x: -9999, y: -9999 };
-      }
+      kick();
     };
 
     setSize();
+    kick(); // setSize skips an unchanged size, but a (re)mounted effect must still paint
     window.addEventListener("resize", setSize);
 
     const onMouseMove = (e: MouseEvent) => {
       targetMouseRef.current = { x: e.clientX, y: e.clientY };
+      // first contact: start at the pointer instead of sweeping in from off-screen
+      if (mouseRef.current.x === -9999)
+        mouseRef.current = { x: e.clientX, y: e.clientY };
+      kick();
     };
 
     const onClick = (e: MouseEvent) => {
@@ -427,11 +450,11 @@ export default function KineticGrid({
         opacity: 1,
         born: performance.now(),
       });
+      kick();
     };
 
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("click", onClick);
-    rafRef.current = requestAnimationFrame(animate);
 
     return () => {
       window.removeEventListener("resize", setSize);
@@ -439,6 +462,7 @@ export default function KineticGrid({
       window.removeEventListener("click", onClick);
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
       }
     };
   }, [animate]);
@@ -455,7 +479,7 @@ export default function KineticGrid({
     >
       <canvas
         ref={canvasRef}
-        className="fixed inset-0 w-full h-full z-0 pointer-events-none"
+        className="fixed left-0 top-0 w-full z-0 pointer-events-none"
       />
 
       <div className="relative z-10 w-full h-full">{children}</div>
